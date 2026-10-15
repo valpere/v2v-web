@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "time/tzdata" // Europe/Kyiv on hosts without a zoneinfo database
+
 	"github.com/valpere/v2v-web/internal/server"
 )
 
@@ -23,9 +25,10 @@ func main() {
 		return def
 	}
 	h, err := server.New(server.Config{
-		EngineURL: os.Getenv("ENGINE_URL"),
-		EngineKey: os.Getenv("ENGINE_KEY"),
-		WebDir:    env("WEB_DIR", "web"),
+		EngineURL:  os.Getenv("ENGINE_URL"),
+		EngineKey:  os.Getenv("ENGINE_KEY"),
+		WebDir:     env("WEB_DIR", "web"),
+		TrustProxy: os.Getenv("TRUST_PROXY") == "1",
 	})
 	if err != nil {
 		log.Fatal(err)

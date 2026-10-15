@@ -15,15 +15,20 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
+
+	"github.com/valpere/v2v-web/internal/limit"
 )
 
 const cookieName = "v2v_visitor"
 
 // Config is what New needs.
 type Config struct {
-	EngineURL string // base URL of the engine's end-user /v1 API
-	EngineKey string // shared secret of the trusted-frontend scheme; empty = forward as is (dev)
-	WebDir    string // static files
+	EngineURL  string // base URL of the engine's end-user /v1 API
+	EngineKey  string // shared secret of the trusted-frontend scheme; empty = forward as is (dev)
+	WebDir     string // static files
+	Limits     Limits // zero = DefaultLimits()
+	TrustProxy bool   // read the client address from X-Forwarded-For (only behind a reverse proxy you control)
 }
 
 // New returns the handler: /healthz, /v1/* -> engine, everything else static.
@@ -52,7 +57,16 @@ func New(cfg Config) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	mux.Handle("/v1/", withVisitor(cfg.EngineKey != "", proxy))
+	loc, err := time.LoadLocation("Europe/Kyiv")
+	if err != nil {
+		return nil, fmt.Errorf("time zone: %w", err)
+	}
+	limits := cfg.Limits
+	if limits == (Limits{}) {
+		limits = DefaultLimits()
+	}
+	lim := limit.New(loc, nil)
+	mux.Handle("/v1/", withVisitor(cfg.EngineKey != "", withLimits(limits, lim, cfg.TrustProxy, proxy)))
 	mux.Handle("/", http.FileServer(http.Dir(cfg.WebDir)))
 	return mux, nil
 }
@@ -61,8 +75,12 @@ func New(cfg Config) (http.Handler, error) {
 // or a fresh one that is also set on the response. The id is passed on in a
 // request header the proxy's Rewrite reads (and never forwards as such).
 func withVisitor(on bool, next http.Handler) http.Handler {
-	if !on {
-		return next
+	if !on { // no engine key (dev): there is no visitor, and a client-supplied id is not one
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r2 := r.Clone(r.Context())
+			r2.Header.Del("X-Visitor-Id")
+			next.ServeHTTP(w, r2)
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := ""
