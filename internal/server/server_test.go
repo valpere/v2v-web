@@ -132,3 +132,156 @@ func TestNewRejectsABadEngineURL(t *testing.T) {
 		t.Fatal("want an error for an empty ENGINE_URL")
 	}
 }
+
+// --- abuse limits ---
+
+func limited(t *testing.T, engineURL string, l Limits, trustProxy bool) http.Handler {
+	t.Helper()
+	dir := t.TempDir()
+	h, err := New(Config{EngineURL: engineURL, EngineKey: "secret-key", WebDir: dir, Limits: l, TrustProxy: trustProxy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// roomy is a Limits where only the field under test bites.
+func roomy() Limits {
+	return Limits{VisitorPerMin: 1000, VisitorPerDay: 1000, IPPerMin: 1000, IPPerDay: 1000,
+		SessionsVisitorPerHour: 1000, SessionsIPPerHour: 1000, GlobalPerDay: 1000}
+}
+
+const msgPath = "/v1/sessions/abc/messages"
+
+func post(h http.Handler, path, ip string, cookie *http.Cookie, hdr map[string]string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+	r.RemoteAddr = ip + ":5555"
+	if cookie != nil {
+		r.AddCookie(cookie)
+	}
+	for k, v := range hdr {
+		r.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+func visitor(h http.Handler, ip string) *http.Cookie {
+	return post(h, "/v1/sessions", ip, nil, nil).Result().Cookies()[0]
+}
+
+func TestMessagesAreLimitedPerVisitor(t *testing.T) {
+	e := newEngine(t)
+	l := roomy()
+	l.VisitorPerMin = 2
+	h := limited(t, e.URL, l, false)
+	c := visitor(h, "10.0.0.1")
+	for i := 0; i < 2; i++ {
+		if w := post(h, msgPath, "10.0.0.1", c, nil); w.Code != 200 {
+			t.Fatalf("message %d: %d", i+1, w.Code)
+		}
+	}
+	e.got = nil
+	w := post(h, msgPath, "10.0.0.1", c, nil)
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") == "" || !strings.Contains(w.Body.String(), `"error"`) {
+		t.Fatalf("over the limit: %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	if e.got != nil {
+		t.Fatal("a refused request must not reach the engine")
+	}
+	// another visitor from another address is unaffected
+	if w := post(h, msgPath, "10.0.0.2", visitor(h, "10.0.0.2"), nil); w.Code != 200 {
+		t.Fatalf("other visitor: %d", w.Code)
+	}
+}
+
+func TestMessagesAreLimitedPerIPAcrossVisitors(t *testing.T) {
+	l := roomy()
+	l.IPPerMin = 2
+	h := limited(t, newEngine(t).URL, l, false)
+	for i := 0; i < 2; i++ {
+		post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), nil) // a fresh cookie each time
+	}
+	if w := post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), nil); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("same IP, new cookie: %d", w.Code)
+	}
+}
+
+func TestSessionsAreLimited(t *testing.T) {
+	l := roomy()
+	l.SessionsIPPerHour = 2
+	h := limited(t, newEngine(t).URL, l, false)
+	post(h, "/v1/sessions", "10.0.0.1", nil, nil)
+	post(h, "/v1/sessions", "10.0.0.1", nil, nil)
+	if w := post(h, "/v1/sessions", "10.0.0.1", nil, nil); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("third session: %d", w.Code)
+	}
+}
+
+func TestSiteWideDailyBudget(t *testing.T) {
+	l := roomy()
+	l.GlobalPerDay = 2
+	h := limited(t, newEngine(t).URL, l, false)
+	post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), nil)
+	post(h, msgPath, "10.0.0.2", visitor(h, "10.0.0.2"), nil)
+	if w := post(h, msgPath, "10.0.0.3", visitor(h, "10.0.0.3"), nil); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("over the site budget: %d", w.Code)
+	}
+}
+
+func TestReadsAreNotLimited(t *testing.T) {
+	l := roomy()
+	l.IPPerMin, l.GlobalPerDay = 1, 1
+	h := limited(t, newEngine(t).URL, l, false)
+	for i := 0; i < 5; i++ {
+		r := httptest.NewRequest("GET", "/v1/sessions/abc/cart", nil)
+		r.RemoteAddr = "10.0.0.1:1"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("GET %d: %d", i, w.Code)
+		}
+	}
+}
+
+func TestForwardedForOnlyCountsBehindATrustedProxy(t *testing.T) {
+	l := roomy()
+	l.IPPerMin = 1
+	// not trusted: the header is ignored, both requests are 10.0.0.1
+	h := limited(t, newEngine(t).URL, l, false)
+	post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), map[string]string{"X-Forwarded-For": "1.1.1.1"})
+	if w := post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), map[string]string{"X-Forwarded-For": "2.2.2.2"}); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("untrusted XFF must not split an IP: %d", w.Code)
+	}
+	// trusted: the rightmost entry is the client the proxy saw; a forged left part is ignored
+	h = limited(t, newEngine(t).URL, l, true)
+	post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), map[string]string{"X-Forwarded-For": "9.9.9.9, 1.1.1.1"})
+	if w := post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), map[string]string{"X-Forwarded-For": "8.8.8.8, 2.2.2.2"}); w.Code != 200 {
+		t.Fatalf("different real clients behind the proxy: %d", w.Code)
+	}
+	if w := post(h, msgPath, "10.0.0.1", visitor(h, "10.0.0.1"), map[string]string{"X-Forwarded-For": "7.7.7.7, 1.1.1.1"}); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("same real client, forged left part: %d", w.Code)
+	}
+}
+
+func TestDefaultLimitsApplyWhenUnset(t *testing.T) {
+	d := DefaultLimits()
+	if d.VisitorPerMin != 6 || d.VisitorPerDay != 60 || d.IPPerMin != 12 || d.IPPerDay != 120 ||
+		d.SessionsVisitorPerHour != 10 || d.SessionsIPPerHour != 20 || d.GlobalPerDay != 150 {
+		t.Fatalf("defaults drifted from the agreed table: %+v", d)
+	}
+}
+
+func TestClientCannotSupplyAVisitorIDInDevMode(t *testing.T) {
+	l := roomy()
+	l.VisitorPerMin = 1
+	dir := t.TempDir()
+	e := newEngine(t)
+	h, _ := New(Config{EngineURL: e.URL, WebDir: dir, Limits: l}) // no engine key: no visitors
+	for i := 0; i < 3; i++ {
+		if w := post(h, msgPath, "10.0.0.1", nil, map[string]string{"X-Visitor-Id": "x"}); w.Code != 200 {
+			t.Fatalf("request %d: %d (visitor rules must not apply without visitors)", i+1, w.Code)
+		}
+	}
+}
