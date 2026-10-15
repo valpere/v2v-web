@@ -1,0 +1,16 @@
+# secrets
+.env
+.env.*
+*.env
+!.env.example
+
+# build
+/bin/
+
+# runtime data
+*.db
+*.sqlite
+*.log
+
+# throwaway scratch (reusable helpers go to minions/, which IS tracked)
+tmp/
