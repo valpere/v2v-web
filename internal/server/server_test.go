@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -156,6 +157,9 @@ const msgPath = "/v1/sessions/abc/messages"
 func post(h http.Handler, path, ip string, cookie *http.Cookie, hdr map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
 	r.RemoteAddr = ip + ":5555"
+	if strings.Contains(ip, ":") { // IPv6 needs brackets
+		r.RemoteAddr = "[" + ip + "]:5555"
+	}
 	if cookie != nil {
 		r.AddCookie(cookie)
 	}
@@ -283,5 +287,82 @@ func TestClientCannotSupplyAVisitorIDInDevMode(t *testing.T) {
 		if w := post(h, msgPath, "10.0.0.1", nil, map[string]string{"X-Visitor-Id": "x"}); w.Code != 200 {
 			t.Fatalf("request %d: %d (visitor rules must not apply without visitors)", i+1, w.Code)
 		}
+	}
+}
+
+func TestFailedEngineCallsAreRefunded(t *testing.T) {
+	// a request the engine rejects (unknown session) spent nothing and must not eat the budget
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "bogus") {
+			http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
+			return
+		}
+		io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+	l := roomy()
+	l.GlobalPerDay = 2
+	h := limited(t, srv.URL, l, false)
+	c := visitor(h, "10.0.0.1")
+	for i := 0; i < 10; i++ {
+		if w := post(h, "/v1/sessions/bogus/messages", "10.0.0.1", c, nil); w.Code != http.StatusNotFound {
+			t.Fatalf("bogus %d: %d", i, w.Code)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if w := post(h, msgPath, "10.0.0.1", c, nil); w.Code != 200 {
+			t.Fatalf("real message %d: %d (the budget was eaten by failures)", i+1, w.Code)
+		}
+	}
+	if w := post(h, msgPath, "10.0.0.1", c, nil); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("budget still enforced: %d", w.Code)
+	}
+}
+
+func TestIPv6ClientsShareTheirSlash64(t *testing.T) {
+	l := roomy()
+	l.IPPerMin = 1
+	h := limited(t, newEngine(t).URL, l, false)
+	post(h, msgPath, "2001:db8:1:2::1", visitor(h, "2001:db8:1:2::1"), nil)
+	// hosts are in brackets in RemoteAddr: post() appends ":5555" to the bare address
+	if w := post(h, msgPath, "2001:db8:1:2::ffff", visitor(h, "2001:db8:1:2::ffff"), nil); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("same /64, different host bits: %d", w.Code)
+	}
+	if w := post(h, msgPath, "2001:db8:1:3::1", visitor(h, "2001:db8:1:3::1"), nil); w.Code != 200 {
+		t.Fatalf("another /64: %d", w.Code)
+	}
+}
+
+func TestForwardedForUsesTheLastHeaderLine(t *testing.T) {
+	l := roomy()
+	l.IPPerMin = 1
+	h := limited(t, newEngine(t).URL, l, true)
+	do := func(lines ...string) int {
+		r := httptest.NewRequest("POST", msgPath, strings.NewReader(`{}`))
+		r.RemoteAddr = "10.0.0.1:1"
+		for _, ln := range lines {
+			r.Header.Add("X-Forwarded-For", ln)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	do("9.9.9.9", "1.1.1.1") // a proxy that adds its own line: the client-supplied first line is ignored
+	if c := do("8.8.8.8", "1.1.1.1"); c != http.StatusTooManyRequests {
+		t.Fatalf("same real client behind a line-adding proxy: %d", c)
+	}
+}
+
+func TestRefusalIsValidJSON(t *testing.T) {
+	l := roomy()
+	l.GlobalPerDay = 1
+	h := limited(t, newEngine(t).URL, l, false)
+	post(h, msgPath, "10.0.0.1", nil, nil)
+	w := post(h, msgPath, "10.0.0.1", nil, nil)
+	var out struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.Error == "" {
+		t.Fatalf("body %q: %v", w.Body, err)
 	}
 }

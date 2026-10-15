@@ -3,6 +3,8 @@ package limit
 import (
 	"testing"
 	"time"
+
+	_ "time/tzdata" // the daily-reset test must never be skipped for want of a zoneinfo database
 )
 
 type clock struct{ t time.Time }
@@ -13,7 +15,7 @@ func newLimiter(t *testing.T) (*Limiter, *clock) {
 	t.Helper()
 	loc, err := time.LoadLocation("Europe/Kyiv")
 	if err != nil {
-		t.Skip("no tzdata")
+		t.Fatal(err)
 	}
 	c := &clock{t: time.Date(2026, 10, 15, 12, 0, 0, 0, loc)}
 	return New(loc, c.now), c
@@ -94,5 +96,37 @@ func TestExpiredCountersAreForgotten(t *testing.T) {
 	l.Sweep()
 	if n := l.Size(); n != 1 {
 		t.Fatalf("%d counters left, want 1", n)
+	}
+}
+
+func TestRefusedRequestsCreateNoCounters(t *testing.T) {
+	// a flood of unique keys must not grow memory when the request is refused anyway
+	l, _ := newLimiter(t)
+	tight := Rule{Name: "ip/min", Key: "1.1.1.1", Limit: 1, Window: time.Minute}
+	l.Take(tight)
+	before := l.Size()
+	for i := 0; i < 500; i++ {
+		l.Take(Rule{Name: "visitor/day", Key: time.Duration(i).String(), Limit: 5, Daily: true}, tight)
+	}
+	if l.Size() != before {
+		t.Fatalf("counters grew from %d to %d on refused requests", before, l.Size())
+	}
+}
+
+func TestRefundGivesBackTheCount(t *testing.T) {
+	l, _ := newLimiter(t)
+	r := Rule{Name: "n", Key: "k", Limit: 1, Window: time.Hour}
+	if ok, _, _ := l.Take(r); !ok {
+		t.Fatal("first")
+	}
+	l.Refund(r)
+	if ok, _, _ := l.Take(r); !ok {
+		t.Fatal("a refunded request frees its slot")
+	}
+	l.Refund(r)
+	l.Refund(r) // refunding more than was taken must not go negative
+	l.Take(r)
+	if ok, _, _ := l.Take(r); ok {
+		t.Fatal("a counter never goes below zero")
 	}
 }

@@ -55,23 +55,37 @@ func (l *Limiter) Take(rules ...Rule) (ok bool, retryAfter time.Duration, name s
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.now()
-	cs := make([]*counter, len(rules))
-	for i, r := range rules {
-		k := r.Name + "\x00" + r.Key
+	// First pass only reads: a refused request must create no counters, or a flood
+	// of unique keys would grow the map for nothing.
+	for _, r := range rules {
+		if c := l.counters[key(r)]; c != nil && now.Before(c.reset) && c.n >= r.Limit {
+			return false, c.reset.Sub(now), r.Name
+		}
+	}
+	for _, r := range rules {
+		k := key(r)
 		c := l.counters[k]
 		if c == nil || !now.Before(c.reset) {
 			c = &counter{reset: l.windowEnd(r, now)}
 			l.counters[k] = c
 		}
-		if c.n >= r.Limit {
-			return false, c.reset.Sub(now), r.Name
-		}
-		cs[i] = c
-	}
-	for _, c := range cs {
 		c.n++
 	}
 	return true, 0, ""
+}
+
+func key(r Rule) string { return r.Name + "\x00" + r.Key }
+
+// Refund gives back one count per rule (a request that turned out to cost nothing).
+// A counter never goes below zero.
+func (l *Limiter) Refund(rules ...Rule) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range rules {
+		if c := l.counters[key(r)]; c != nil && c.n > 0 {
+			c.n--
+		}
+	}
 }
 
 // Sweep forgets counters whose window has passed.

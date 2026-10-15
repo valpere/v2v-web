@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	_ "time/tzdata" // Europe/Kyiv even on a host without a zoneinfo database
+
 	"github.com/valpere/v2v-web/internal/limit"
 )
 

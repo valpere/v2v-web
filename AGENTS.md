@@ -34,7 +34,8 @@ implementation notes in `v2v-demo/docs/web-api.md`. Browsers carry no Telegram
    `Authorization` from the browser request and sets its own; the engine key
    (`ENGINE_KEY`) never reaches the browser.
 4. **Model output is text, never HTML:** render replies with `textContent`.
-5. Every `/v1` error is shown to the user in plain words; a `502` means the engine is down.
+5. **Limits are an allowlist:** `rulesFor` in `internal/server/limits.go` counts only `POST /v1/sessions` and `POST …/messages`. Any new route that spends money (voice, …) must be added there in the same change.
+6. Every `/v1` error is shown to the user in plain words; a `502` means the engine is down.
 
 ## Conventions
 - Go 1.26+, standard library first, no frameworks. Frontend: vanilla ES6+, plain CSS,
