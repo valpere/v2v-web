@@ -22,6 +22,7 @@ function say(who, text) {
   el.textContent = text; // never innerHTML: replies are model output
   $("log").append(el);
   $("log").scrollTop = $("log").scrollHeight;
+  return el;
 }
 
 function qtyOf(id) {
@@ -161,6 +162,73 @@ async function send(text) {
   }
 }
 
+const MAX_REC_SECONDS = 60;
+const rec = { mr: null, chunks: [], started: 0, timer: null };
+
+function micSupported() {
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+}
+
+async function toggleMic() {
+  if (rec.mr) { rec.mr.stop(); return; }
+  if (!state.session || state.busy) return;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    say("bot", "Немає доступу до мікрофона — дозвольте його в браузері або пишіть текстом.");
+    return;
+  }
+  rec.chunks = [];
+  rec.mr = new MediaRecorder(stream);
+  rec.mr.ondataavailable = (e) => e.data.size && rec.chunks.push(e.data);
+  rec.mr.onstop = () => {
+    clearTimeout(rec.timer);
+    stream.getTracks().forEach((t) => t.stop());
+    const type = rec.mr.mimeType || "audio/webm";
+    const secs = Math.max(1, Math.round((Date.now() - rec.started) / 1000));
+    rec.mr = null;
+    $("mic").classList.remove("rec");
+    sendVoice(new Blob(rec.chunks, { type }), secs);
+  };
+  rec.started = Date.now();
+  rec.mr.start();
+  $("mic").classList.add("rec");
+  rec.timer = setTimeout(() => rec.mr && rec.mr.stop(), MAX_REC_SECONDS * 1000);
+}
+
+async function sendVoice(blob, secs) {
+  if (!state.session || state.busy || !blob.size) return;
+  state.busy = true;
+  const mine = say("user", "🎤 …");
+  try {
+    const res = await fetch(`/v1/sessions/${state.session}/voice?seconds=${secs}`, {
+      method: "POST", headers: { "Content-Type": blob.type }, body: blob,
+    });
+    const r = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(r.error || "HTTP " + res.status);
+    mine.textContent = r.transcript ? "🎤 " + r.transcript : "🎤";
+    say("bot", r.reply);
+    renderCart(r.cart);
+    applyUIActions(r.ui_actions);
+    if (r.audio_b64) play(r.audio_b64, r.audio_type);
+  } catch (e) {
+    mine.textContent = "🎤";
+    say("bot", "Помилка: " + e.message);
+  } finally {
+    state.busy = false;
+  }
+}
+
+function play(b64, type) {
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const a = new Audio(url);
+  a.onended = a.onerror = () => URL.revokeObjectURL(url);
+  a.play().catch(() => URL.revokeObjectURL(url)); // autoplay can be refused; the text is already there
+}
+
 async function checkout() {
   try {
     const r = await api("POST", `/sessions/${state.session}/checkout`, {});
@@ -174,6 +242,7 @@ async function init() {
   $("form").onsubmit = (ev) => { ev.preventDefault(); const v = $("text").value; $("text").value = ""; send(v); };
   $("back").onclick = () => { $("chat").hidden = true; $("cart").hidden = true; $("catalog").hidden = true; $("topics").hidden = false; $("topic-name").textContent = ""; };
   $("checkout").onclick = checkout;
+  if (micSupported()) { $("mic").hidden = false; $("mic").onclick = toggleMic; }
   try {
     state.topics = await api("GET", "/topics");
   } catch (e) {

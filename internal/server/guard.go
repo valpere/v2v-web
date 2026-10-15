@@ -11,9 +11,17 @@ import (
 // maxBody caps a /v1 request body; the engine caps text at 500 characters.
 const maxBody = 16 << 10
 
+// maxVoiceBody caps a recording on the voice route (the engine caps it again).
+const maxVoiceBody = 1 << 20
+
+// isVoice is the one route that carries audio instead of JSON.
+func isVoice(r *http.Request) bool {
+	return r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/sessions/") && strings.HasSuffix(r.URL.Path, "/voice")
+}
+
 // csp allows only our own files: the client never uses inline script or style,
 // so a reflected or stored injection cannot run.
-const csp = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+const csp = "default-src 'self'; media-src blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
 // guard adds the browser-facing protections around the whole site:
 //   - security headers on every response;
@@ -33,11 +41,15 @@ func guard(next http.Handler, publicOrigin string) http.Handler {
 
 		if r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/") {
 			h.Set("Cache-Control", "no-store")
-			if r.ContentLength > maxBody {
+			limit := int64(maxBody)
+			if isVoice(r) {
+				limit = maxVoiceBody
+			}
+			if r.ContentLength > limit {
 				jsonError(w, http.StatusRequestEntityTooLarge, "request too large")
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			if !safeMethod(r.Method) {
 				if code, msg := csrfCheck(r, publicOrigin); code != 0 {
 					jsonError(w, code, msg)
@@ -72,7 +84,12 @@ func csrfCheck(r *http.Request, publicOrigin string) (int, string) {
 	// a body with no declared type is refused as well.
 	if ct := r.Header.Get("Content-Type"); ct != "" || r.ContentLength != 0 {
 		mt, _, err := mime.ParseMediaType(ct)
-		if err != nil || mt != "application/json" {
+		if isVoice(r) {
+			// audio/* needs a CORS preflight we never answer, so it is as cross-site-proof as JSON
+			if err != nil || !strings.HasPrefix(mt, "audio/") {
+				return http.StatusUnsupportedMediaType, "content type must be audio/*"
+			}
+		} else if err != nil || mt != "application/json" {
 			return http.StatusUnsupportedMediaType, "content type must be application/json"
 		}
 	}
