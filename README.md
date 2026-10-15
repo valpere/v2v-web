@@ -22,7 +22,7 @@
 ## Запуск
 
 ```bash
-# рушій (v2v-demo): WEB_ADDR=127.0.0.1:8091 WEB_DEV_AUTH=1  (лише локально)
+# рушій (v2v-demo): WEB_ADDR=127.0.0.1:8091 WEB_TRUSTED_KEY=<той самий, що ENGINE_KEY>
 cp .env.example .env   # ENGINE_URL, ENGINE_KEY
 make run               # http://127.0.0.1:8086
 make check             # gofmt, vet, тести з -race, node --check, збірка
@@ -31,7 +31,7 @@ make check             # gofmt, vet, тести з -race, node --check, збір
 | Змінна | Призначення |
 |---|---|
 | `ENGINE_URL` | базовий URL `/v1` рушія (обов'язково) |
-| `ENGINE_KEY` | спільний секрет довіреного фронтенда; порожній = пересилати як є (лише для локального `WEB_DEV_AUTH`) |
+| `ENGINE_KEY` | спільний секрет довіреного фронтенда (= `WEB_TRUSTED_KEY` рушія, ≥ 32 символи); порожній = пересилати як є (рушій із `WEB_DEV_AUTH=1`, лише локально) |
 | `ADDR` (`127.0.0.1:8086`), `WEB_DIR` (`web`) | |
 
 ## Ліцензія

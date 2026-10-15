@@ -11,16 +11,7 @@ text mode, `/v1` reverse proxy, anonymous visitor cookie, `make check`. Not live
 
 ## 1. Backlog (in order)
 
-1. **Engine: trusted-frontend auth (blocks production).** The engine's `/v1`
-   accepts only `Authorization: tma <initData>` (or `WEB_DEV_AUTH` on loopback, one
-   shared principal). Add a second scheme: `Authorization: Bearer <WEB_TRUSTED_KEY>`
-   plus `X-Principal: <id>` — the key identifies a trusted frontend, the header
-   names the end user it vouches for (like the channel API's key, per user).
-   Constant-time compare, key >= 32 chars, refuse the scheme unless the listener
-   is loopback/private, principal charset/length validated, namespaced so it can
-   never collide with a Telegram id (`web:` prefix). Until then run the engine
-   with `WEB_DEV_AUTH=1` and leave `ENGINE_KEY` empty (every browser shares one
-   principal — dev only). *Engine work: write it up for v2v-demo or do it there.*
+1. ~~Engine: trusted-frontend auth~~ **DONE 2026-10-15** (v2v-demo PR #12): engine `WEB_TRUSTED_KEY` (>= 32 chars, loopback `WEB_ADDR`, not with `WEB_DEV_AUTH`) + `Authorization: Bearer <key>` + `X-Principal: web:<id>` (`id` = 1–64 of `[A-Za-z0-9_-]`). Set the same value here as `ENGINE_KEY`. Verified locally: visitor cookie keeps one session pool, a visitor without the cookie gets 404 on another's session, a wrong key straight at the engine is 401. The ids this server mints are 128-bit random; the engine only checks shape, so never derive one from client input.
 2. **Abuse limits at the BFF.** A public page spends LLM money: per-IP rate limit
    and a daily cap per visitor (the engine's per-chat limits already apply per
    session; sessions per principal are capped at 20). Decide the limits with Val.
@@ -39,6 +30,6 @@ text mode, `/v1` reverse proxy, anonymous visitor cookie, `make check`. Not live
    empty/error state, copy.
 
 ## 2. Local run
-Engine: `WEB_ADDR=127.0.0.1:8091 WEB_DEV_AUTH=1 CHECKOUT=mock` (+ the usual dialog
+Engine: `WEB_ADDR=127.0.0.1:8091 WEB_TRUSTED_KEY=<same as ENGINE_KEY> CHECKOUT=mock` (+ the usual dialog
 backend keys). Here: `.env` from `.env.example`, `make run`, open
 http://127.0.0.1:8086.

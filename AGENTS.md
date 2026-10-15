@@ -10,7 +10,7 @@ engine. Sibling frontends of the same engine: v2v-bot (Telegram) and v2v-tma
 
 **Status: first skeleton (2026-10-15)** — static client (text mode), `/v1` proxy
 with anonymous visitor principals. Not live. `docs/HANDOFF.md` lists what is
-missing (first: the engine does not yet accept this server's principal scheme).
+missing (abuse limits, voice, deploy).
 
 ## Architecture
 
@@ -60,5 +60,5 @@ implementation notes in `v2v-demo/docs/web-api.md`. Browsers carry no Telegram
 - `docs/HANDOFF.md` — status and ordered backlog
 
 ## Verification
-`make check`; then run the engine with `WEB_ADDR=127.0.0.1:8091 WEB_DEV_AUTH=1`,
+`make check`; then run the engine with `WEB_ADDR=127.0.0.1:8091 WEB_TRUSTED_KEY=<ENGINE_KEY>`,
 `make run` here, open http://127.0.0.1:8086 and pick a topic.
