@@ -585,3 +585,63 @@ func TestServesAnEmbeddedClientWhenGivenAnFS(t *testing.T) {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }
+
+// --- voice ---
+
+const voicePath = "/v1/sessions/abc/voice?seconds=3"
+
+func TestVoiceUploadsPassWithAnAudioType(t *testing.T) {
+	h, e := guarded(t)
+	audio := with(nil, "Content-Type", "audio/webm;codecs=opus")
+	if w := send(h, "POST", voicePath, audio, strings.Repeat("a", 200<<10)); w.Code != 200 || e.got == nil {
+		t.Fatalf("200 KiB recording: %d", w.Code)
+	}
+}
+
+func TestVoiceUploadsAreStillGuarded(t *testing.T) {
+	h, e := guarded(t)
+	audio := with(nil, "Content-Type", "audio/webm")
+	if w := send(h, "POST", voicePath, with(audio, "Sec-Fetch-Site", "cross-site"), "x"); w.Code != http.StatusForbidden {
+		t.Errorf("cross-site: %d", w.Code)
+	}
+	if w := send(h, "POST", voicePath, audio, strings.Repeat("a", 2<<20)); w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("2 MiB: %d", w.Code)
+	}
+	e.got = nil
+	for _, ct := range []string{"text/plain", "application/json", ""} {
+		hdr := map[string]string{}
+		if ct != "" {
+			hdr["Content-Type"] = ct
+		}
+		if w := send(h, "POST", voicePath, hdr, "x"); w.Code != http.StatusUnsupportedMediaType || e.got != nil {
+			t.Errorf("content-type %q: %d", ct, w.Code)
+		}
+	}
+	// the larger cap is for the voice route only
+	if w := send(h, "POST", "/v1/sessions/abc/messages", jsonCT, `{"text":"`+strings.Repeat("a", 20<<10)+`"}`); w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("a big message: %d", w.Code)
+	}
+}
+
+func TestVoiceCountsLikeAMessage(t *testing.T) {
+	e := newEngine(t)
+	l := roomy()
+	l.VisitorPerMin = 2
+	h := limited(t, e.URL, l, false)
+	c := visitor(h, "10.0.0.1")
+	voice := func() int {
+		r := httptest.NewRequest("POST", voicePath, strings.NewReader("x"))
+		r.Header.Set("Content-Type", "audio/webm")
+		r.RemoteAddr = "10.0.0.1:5555"
+		r.AddCookie(c)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	if a, b := voice(), post(h, msgPath, "10.0.0.1", c, nil).Code; a != 200 || b != 200 {
+		t.Fatalf("within the limit: %d %d", a, b)
+	}
+	if code := voice(); code != http.StatusTooManyRequests {
+		t.Fatalf("third turn (voice) over the per-minute limit: %d", code)
+	}
+}

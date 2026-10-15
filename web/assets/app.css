@@ -25,3 +25,4 @@ main { display: grid; gap: var(--gap); padding: 16px; max-width: 960px; margin: 
 .qty { display: flex; align-items: center; gap: 6px; }
 .qty button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #8886; background: none; color: inherit; font-size: 1.1rem; cursor: pointer; }
 .qty button:disabled { opacity: .35; cursor: default; }
+#mic { min-width: 44px; } #mic.rec { background: #d33; color: #fff; }

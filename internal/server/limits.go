@@ -66,7 +66,7 @@ func bucket(ip string) string {
 }
 
 // withLimits refuses a counted request with 429 before it reaches the engine.
-// Only POST /v1/sessions and POST /v1/sessions/{id}/messages are counted.
+// Only POST /v1/sessions and POST /v1/sessions/{id}/messages and /voice are counted.
 func withLimits(l Limits, lim *limit.Limiter, trustProxy bool, next http.Handler) http.Handler {
 	var calls atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +114,7 @@ func rulesFor(l Limits, r *http.Request, ip string) []limit.Rule {
 	case r.URL.Path == "/v1/sessions":
 		add("sessions/visitor/hour", vid, l.SessionsVisitorPerHour, time.Hour, false)
 		add("sessions/ip/hour", ip, l.SessionsIPPerHour, time.Hour, false)
-	case strings.HasPrefix(r.URL.Path, "/v1/sessions/") && strings.HasSuffix(r.URL.Path, "/messages"):
+	case strings.HasPrefix(r.URL.Path, "/v1/sessions/") && (strings.HasSuffix(r.URL.Path, "/messages") || strings.HasSuffix(r.URL.Path, "/voice")):
 		add("visitor/min", vid, l.VisitorPerMin, time.Minute, false)
 		add("visitor/day", vid, l.VisitorPerDay, 0, true)
 		add("ip/min", ip, l.IPPerMin, time.Minute, false)
