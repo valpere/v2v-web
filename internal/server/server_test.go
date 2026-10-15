@@ -42,6 +42,7 @@ func newServer(t *testing.T, engineURL, key string) http.Handler {
 
 func do(h http.Handler, method, path string, hdr map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(`{}`))
+	r.Header.Set("Content-Type", "application/json")
 	for k, v := range hdr {
 		r.Header.Set(k, v)
 	}
@@ -156,6 +157,7 @@ const msgPath = "/v1/sessions/abc/messages"
 
 func post(h http.Handler, path, ip string, cookie *http.Cookie, hdr map[string]string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest("POST", path, strings.NewReader(`{}`))
+	r.Header.Set("Content-Type", "application/json")
 	r.RemoteAddr = ip + ":5555"
 	if strings.Contains(ip, ":") { // IPv6 needs brackets
 		r.RemoteAddr = "[" + ip + "]:5555"
@@ -339,6 +341,7 @@ func TestForwardedForUsesTheLastHeaderLine(t *testing.T) {
 	h := limited(t, newEngine(t).URL, l, true)
 	do := func(lines ...string) int {
 		r := httptest.NewRequest("POST", msgPath, strings.NewReader(`{}`))
+		r.Header.Set("Content-Type", "application/json")
 		r.RemoteAddr = "10.0.0.1:1"
 		for _, ln := range lines {
 			r.Header.Add("X-Forwarded-For", ln)
@@ -364,5 +367,120 @@ func TestRefusalIsValidJSON(t *testing.T) {
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || out.Error == "" {
 		t.Fatalf("body %q: %v", w.Body, err)
+	}
+}
+
+// --- CSRF and browser hardening ---
+
+func guarded(t *testing.T) (http.Handler, *engine) {
+	e := newEngine(t)
+	return limited(t, e.URL, roomy(), false), e
+}
+
+func send(h http.Handler, method, path string, hdr map[string]string, body string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Host = "demo.example"
+	r.RemoteAddr = "10.0.0.1:1"
+	for k, v := range hdr {
+		r.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+var jsonCT = map[string]string{"Content-Type": "application/json"}
+
+func with(base map[string]string, kv ...string) map[string]string {
+	m := map[string]string{}
+	for k, v := range base {
+		m[k] = v
+	}
+	for i := 0; i+1 < len(kv); i += 2 {
+		m[kv[i]] = kv[i+1]
+	}
+	return m
+}
+
+func TestCrossSiteStateChangesAreRefused(t *testing.T) {
+	h, e := guarded(t)
+	for name, hdr := range map[string]map[string]string{
+		"sec-fetch cross-site":  with(jsonCT, "Sec-Fetch-Site", "cross-site"),
+		"sec-fetch same-site":   with(jsonCT, "Sec-Fetch-Site", "same-site"), // a sibling subdomain is not us
+		"foreign origin":        with(jsonCT, "Origin", "https://evil.example"),
+		"origin null (sandbox)": with(jsonCT, "Origin", "null"),
+	} {
+		e.got = nil
+		if w := send(h, "POST", "/v1/sessions", hdr, `{}`); w.Code != http.StatusForbidden || e.got != nil {
+			t.Errorf("%s: %d (engine reached: %v)", name, w.Code, e.got != nil)
+		}
+	}
+}
+
+func TestSameOriginStateChangesPass(t *testing.T) {
+	h, _ := guarded(t)
+	for name, hdr := range map[string]map[string]string{
+		"same-origin fetch":  with(jsonCT, "Sec-Fetch-Site", "same-origin", "Origin", "https://demo.example"),
+		"no browser headers": jsonCT, // curl, tests, older clients: the cookie rules still apply
+		"origin with a port": with(jsonCT, "Origin", "http://demo.example"),
+		"direct navigation":  with(jsonCT, "Sec-Fetch-Site", "none"),
+	} {
+		if w := send(h, "POST", "/v1/sessions", hdr, `{}`); w.Code != 200 {
+			t.Errorf("%s: %d", name, w.Code)
+		}
+	}
+}
+
+func TestStateChangesNeedJSON(t *testing.T) {
+	h, e := guarded(t)
+	for _, ct := range []string{"text/plain", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", ""} {
+		e.got = nil
+		hdr := map[string]string{}
+		if ct != "" {
+			hdr["Content-Type"] = ct
+		}
+		if w := send(h, "POST", "/v1/sessions", hdr, `{"topic":"x"}`); w.Code != http.StatusUnsupportedMediaType || e.got != nil {
+			t.Errorf("content-type %q: %d", ct, w.Code)
+		}
+	}
+	// a body-less DELETE has no content type to check
+	if w := send(h, "DELETE", "/v1/sessions/abc/cart", nil, ""); w.Code != 200 {
+		t.Errorf("DELETE: %d", w.Code)
+	}
+	if w := send(h, "POST", "/v1/sessions", with(jsonCT, "Content-Type", "application/json; charset=utf-8"), `{}`); w.Code != 200 {
+		t.Errorf("json with charset: %d", w.Code)
+	}
+}
+
+func TestReadsAreNotSubjectToTheCSRFGuard(t *testing.T) {
+	h, _ := guarded(t)
+	if w := send(h, "GET", "/v1/topics", with(nil, "Sec-Fetch-Site", "cross-site"), ""); w.Code != 200 {
+		t.Fatalf("GET from another site: %d", w.Code)
+	}
+}
+
+func TestBodiesAreCapped(t *testing.T) {
+	h, _ := guarded(t)
+	big := `{"text":"` + strings.Repeat("a", 20<<10) + `"}`
+	w := send(h, "POST", "/v1/sessions/abc/messages", jsonCT, big)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("20 KiB body: %d", w.Code)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	h, _ := guarded(t)
+	w := send(h, "GET", "/", nil, "")
+	csp := w.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP %q lacks %q", csp, want)
+		}
+	}
+	if w.Header().Get("X-Content-Type-Options") != "nosniff" || w.Header().Get("X-Frame-Options") != "DENY" || w.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Errorf("headers: %v", w.Header())
+	}
+	if v := send(h, "GET", "/v1/topics", nil, "").Header().Get("Cache-Control"); v != "no-store" {
+		t.Errorf("/v1 must not be cached: %q", v)
 	}
 }

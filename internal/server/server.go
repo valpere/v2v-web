@@ -70,7 +70,7 @@ func New(cfg Config) (http.Handler, error) {
 	lim := limit.New(loc, nil)
 	mux.Handle("/v1/", withVisitor(cfg.EngineKey != "", withLimits(limits, lim, cfg.TrustProxy, proxy)))
 	mux.Handle("/", http.FileServer(http.Dir(cfg.WebDir)))
-	return mux, nil
+	return guard(mux), nil
 }
 
 // withVisitor makes sure the request carries a visitor id: an existing cookie,
