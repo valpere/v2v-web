@@ -35,7 +35,8 @@ implementation notes in `v2v-demo/docs/web-api.md`. Browsers carry no Telegram
    (`ENGINE_KEY`) never reaches the browser.
 4. **Model output is text, never HTML:** render replies with `textContent`.
 5. **Limits are an allowlist:** `rulesFor` in `internal/server/limits.go` counts only `POST /v1/sessions` and `POST …/messages`. Any new route that spends money (voice, …) must be added there in the same change.
-6. Every `/v1` error is shown to the user in plain words; a `502` means the engine is down.
+6. **CSRF and browser hardening live in `internal/server/guard.go`:** state-changing `/v1` requests need a same-origin `Sec-Fetch-Site`/`Origin` and `Content-Type: application/json`; CSP is `default-src 'self'`, so the client must never use inline script/style or `innerHTML`.
+7. Every `/v1` error is shown to the user in plain words; a `502` means the engine is down.
 
 ## Conventions
 - Go 1.26+, standard library first, no frameworks. Frontend: vanilla ES6+, plain CSS,
