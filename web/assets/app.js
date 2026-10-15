@@ -59,8 +59,8 @@ function renderCatalog() {
     n.className = "n";
     const plus = document.createElement("button");
     plus.type = "button"; plus.textContent = "+"; plus.setAttribute("aria-label", "Більше: " + it.title);
-    minus.onclick = () => setQty(it.item_id, qtyOf(it.item_id) - 1);
-    plus.onclick = () => setQty(it.item_id, qtyOf(it.item_id) + 1);
+    minus.onclick = () => bumpQty(it.item_id, -1);
+    plus.onclick = () => bumpQty(it.item_id, +1);
     qty.append(minus, n, plus);
     row.append(icon, info, qty);
     return row;
@@ -75,6 +75,13 @@ function syncQty() {
     row.querySelector(".n").textContent = q || "";
     row.querySelector("button").disabled = q === 0; // the first button is "−"
   }
+}
+
+// Taps are queued and the target is computed when a request runs, so a fast double tap
+// is +2, not two requests built from the same stale quantity.
+let qtyChain = Promise.resolve();
+function bumpQty(itemId, delta) {
+  qtyChain = qtyChain.then(() => setQty(itemId, qtyOf(itemId) + delta));
 }
 
 async function setQty(itemId, q) {
