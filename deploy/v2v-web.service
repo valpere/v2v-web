@@ -1,0 +1,26 @@
+[Unit]
+Description=v2v web frontend (static client + /v1 proxy)
+After=network-online.target v2v-engine.service
+Wants=network-online.target v2v-engine.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/v2v-web
+ExecStart=/home/ubuntu/v2v-web/v2v-web
+# KEY=value lines, no quotes; chmod 600 (it holds ENGINE_KEY)
+EnvironmentFile=/home/ubuntu/v2v-web/.env
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+MemoryMax=150M
+
+[Install]
+WantedBy=multi-user.target

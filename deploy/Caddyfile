@@ -1,0 +1,8 @@
+# /etc/caddy/Caddyfile — TLS terminates here (Let's Encrypt, automatic); v2v-web
+# listens on loopback only. Caddy does not trust a client-supplied X-Forwarded-For
+# (no trusted_proxies configured), it sets the header to the real peer address,
+# which is what TRUST_PROXY=1 in v2v-web reads (rightmost entry).
+demo.pere.org.ua {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8086
+}

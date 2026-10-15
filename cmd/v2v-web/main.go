@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/valpere/v2v-web"
 	"github.com/valpere/v2v-web/internal/server"
 )
 
@@ -22,13 +23,17 @@ func main() {
 		}
 		return def
 	}
-	h, err := server.New(server.Config{
+	cfg := server.Config{
 		EngineURL:    os.Getenv("ENGINE_URL"),
 		EngineKey:    os.Getenv("ENGINE_KEY"),
-		WebDir:       env("WEB_DIR", "web"),
+		WebDir:       os.Getenv("WEB_DIR"),
 		TrustProxy:   os.Getenv("TRUST_PROXY") == "1",
 		PublicOrigin: os.Getenv("PUBLIC_ORIGIN"),
-	})
+	}
+	if cfg.WebDir == "" { // production: the client embedded in this binary
+		cfg.Static = v2vweb.Client()
+	}
+	h, err := server.New(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}

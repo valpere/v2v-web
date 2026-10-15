@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // engine records the last request it received and answers with a fixed body.
@@ -572,5 +573,15 @@ func TestHSTSWhenThePublicOriginIsHTTPS(t *testing.T) {
 	}
 	if v := send(originGuarded(t, ""), "GET", "/", nil, "").Header().Get("Strict-Transport-Security"); v != "" {
 		t.Errorf("no HSTS without an https public origin: %q", v)
+	}
+}
+
+func TestServesAnEmbeddedClientWhenGivenAnFS(t *testing.T) {
+	h, err := New(Config{EngineURL: "http://127.0.0.1:1", Static: fstest.MapFS{"index.html": {Data: []byte("<h1>embedded</h1>")}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := do(h, "GET", "/", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "embedded") {
+		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 }
