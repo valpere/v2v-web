@@ -1,9 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"math"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -37,18 +39,30 @@ func DefaultLimits() Limits {
 // to its left was supplied by the client and is ignored.
 func clientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
+		// Values, not Get: a proxy may add its own header line, and only the last is its own.
+		if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 {
+			parts := strings.Split(lines[len(lines)-1], ",")
 			if ip := strings.TrimSpace(parts[len(parts)-1]); ip != "" {
-				return ip
+				return bucket(ip)
 			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		return bucket(r.RemoteAddr)
 	}
-	return host
+	return bucket(host)
+}
+
+// bucket keys an IPv6 address by its /64: one subscriber holds a whole /64 and
+// can rotate through it, so a single address is not a unit of abuse.
+func bucket(ip string) string {
+	if a, err := netip.ParseAddr(ip); err == nil && a.Is6() && !a.Is4In6() {
+		if p, err := a.Prefix(64); err == nil {
+			return p.String()
+		}
+	}
+	return ip
 }
 
 // withLimits refuses a counted request with 429 before it reaches the engine.
@@ -66,7 +80,12 @@ func withLimits(l Limits, lim *limit.Limiter, trustProxy bool, next http.Handler
 		}
 		ok, retry, name := lim.Take(rules...)
 		if ok {
-			next.ServeHTTP(w, r)
+			// a request the engine turns away (unknown session, 4xx/5xx) spent nothing: give it back
+			rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(rec, r)
+			if rec.status >= 400 {
+				lim.Refund(rules...)
+			}
 			return
 		}
 		secs := int(math.Ceil(retry.Seconds()))
@@ -76,7 +95,7 @@ func withLimits(l Limits, lim *limit.Limiter, trustProxy bool, next http.Handler
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"error":"` + refusal(name) + `"}`))
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": refusal(name)})
 	})
 }
 
@@ -118,3 +137,17 @@ func refusal(rule string) string {
 		return "Забагато повідомлень — зачекайте хвилину."
 	}
 }
+
+// statusRecorder remembers the status the engine answered with.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+// Unwrap lets http.ResponseController reach the real writer (flushing).
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }

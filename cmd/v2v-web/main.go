@@ -12,8 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	_ "time/tzdata" // Europe/Kyiv on hosts without a zoneinfo database
-
 	"github.com/valpere/v2v-web/internal/server"
 )
 
