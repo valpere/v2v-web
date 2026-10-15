@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -28,7 +29,8 @@ const cookieName = "v2v_visitor"
 type Config struct {
 	EngineURL string // base URL of the engine's end-user /v1 API
 	EngineKey string // shared secret of the trusted-frontend scheme; empty = forward as is (dev)
-	WebDir    string // static files
+	WebDir    string // static files on disk (development)
+	Static    fs.FS  // static files from memory (the embedded client); wins over WebDir
 	Limits    Limits // zero = DefaultLimits()
 	// PublicOrigin is the site's own origin, e.g. https://demo.example (no path). Behind a proxy that
 	// rewrites Host it is what Origin is checked against; empty = compare with the Host header.
@@ -77,7 +79,11 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	lim := limit.New(loc, nil)
 	mux.Handle("/v1/", withVisitor(cfg.EngineKey != "", withLimits(limits, lim, cfg.TrustProxy, proxy)))
-	mux.Handle("/", http.FileServer(http.Dir(cfg.WebDir)))
+	var static http.FileSystem = http.Dir(cfg.WebDir)
+	if cfg.Static != nil {
+		static = http.FS(cfg.Static)
+	}
+	mux.Handle("/", http.FileServer(static))
 	return guard(mux, strings.TrimRight(cfg.PublicOrigin, "/")), nil
 }
 

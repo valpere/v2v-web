@@ -32,7 +32,8 @@ make check             # gofmt, vet, тести з -race, node --check, збір
 |---|---|
 | `ENGINE_URL` | базовий URL `/v1` рушія (обов'язково) |
 | `ENGINE_KEY` | спільний секрет довіреного фронтенда (= `WEB_TRUSTED_KEY` рушія, ≥ 32 символи); порожній = пересилати як є (рушій із `WEB_DEV_AUTH=1`, лише локально) |
-| `ADDR` (`127.0.0.1:8086`), `WEB_DIR` (`web`) | |
+| `ADDR` (`127.0.0.1:8086`) | |
+| `WEB_DIR` | порожній = клієнт вбудований у бінарник (прод); `WEB_DIR=web` — файли з диска (розробка) |
 | `TRUST_PROXY=1` | брати адресу клієнта з `X-Forwarded-For` (лише за власним reverse proxy) |
 | `PUBLIC_ORIGIN` | власний origin сайту (`https://demo.example`): CSRF-перевірка `Origin` точно за ним, HSTS; обов'язково за proxy, що міняє `Host` |
 
