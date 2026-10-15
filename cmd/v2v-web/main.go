@@ -23,10 +23,11 @@ func main() {
 		return def
 	}
 	h, err := server.New(server.Config{
-		EngineURL:  os.Getenv("ENGINE_URL"),
-		EngineKey:  os.Getenv("ENGINE_KEY"),
-		WebDir:     env("WEB_DIR", "web"),
-		TrustProxy: os.Getenv("TRUST_PROXY") == "1",
+		EngineURL:    os.Getenv("ENGINE_URL"),
+		EngineKey:    os.Getenv("ENGINE_KEY"),
+		WebDir:       env("WEB_DIR", "web"),
+		TrustProxy:   os.Getenv("TRUST_PROXY") == "1",
+		PublicOrigin: os.Getenv("PUBLIC_ORIGIN"),
 	})
 	if err != nil {
 		log.Fatal(err)

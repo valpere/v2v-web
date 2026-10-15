@@ -26,11 +26,14 @@ const cookieName = "v2v_visitor"
 
 // Config is what New needs.
 type Config struct {
-	EngineURL  string // base URL of the engine's end-user /v1 API
-	EngineKey  string // shared secret of the trusted-frontend scheme; empty = forward as is (dev)
-	WebDir     string // static files
-	Limits     Limits // zero = DefaultLimits()
-	TrustProxy bool   // read the client address from X-Forwarded-For (only behind a reverse proxy you control)
+	EngineURL string // base URL of the engine's end-user /v1 API
+	EngineKey string // shared secret of the trusted-frontend scheme; empty = forward as is (dev)
+	WebDir    string // static files
+	Limits    Limits // zero = DefaultLimits()
+	// PublicOrigin is the site's own origin, e.g. https://demo.example (no path). Behind a proxy that
+	// rewrites Host it is what Origin is checked against; empty = compare with the Host header.
+	PublicOrigin string
+	TrustProxy   bool // read the client address from X-Forwarded-For (only behind a reverse proxy you control)
 }
 
 // New returns the handler: /healthz, /v1/* -> engine, everything else static.
@@ -52,8 +55,13 @@ func New(cfg Config) (http.Handler, error) {
 				r.Out.Header.Set("X-Principal", "web:"+visitorID(r.In))
 			}
 		},
-		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
-			http.Error(w, `{"error":"engine unavailable"}`, http.StatusBadGateway)
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) { // a chunked body that outgrew the cap while being forwarded
+				jsonError(w, http.StatusRequestEntityTooLarge, "request too large")
+				return
+			}
+			jsonError(w, http.StatusBadGateway, "engine unavailable")
 		},
 	}
 
@@ -70,7 +78,7 @@ func New(cfg Config) (http.Handler, error) {
 	lim := limit.New(loc, nil)
 	mux.Handle("/v1/", withVisitor(cfg.EngineKey != "", withLimits(limits, lim, cfg.TrustProxy, proxy)))
 	mux.Handle("/", http.FileServer(http.Dir(cfg.WebDir)))
-	return guard(mux), nil
+	return guard(mux, strings.TrimRight(cfg.PublicOrigin, "/")), nil
 }
 
 // withVisitor makes sure the request carries a visitor id: an existing cookie,

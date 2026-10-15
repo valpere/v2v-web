@@ -484,3 +484,93 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Errorf("/v1 must not be cached: %q", v)
 	}
 }
+
+// --- review findings on the guard ---
+
+func originGuarded(t *testing.T, origin string) http.Handler {
+	t.Helper()
+	h, err := New(Config{EngineURL: newEngine(t).URL, EngineKey: "k", WebDir: t.TempDir(), Limits: roomy(), PublicOrigin: origin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func TestPublicOriginIsComparedExactlyAndSurvivesHostRewrites(t *testing.T) {
+	h := originGuarded(t, "https://demo.example")
+	r := func(origin string) int {
+		req := httptest.NewRequest("POST", "/v1/sessions", strings.NewReader(`{}`))
+		req.Host = "127.0.0.1:8086" // the proxy rewrote Host
+		req.RemoteAddr = "10.0.0.1:1"
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Origin", origin)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w.Code
+	}
+	if c := r("https://demo.example"); c != 200 {
+		t.Errorf("our origin: %d", c)
+	}
+	for _, bad := range []string{"http://demo.example", "https://demo.example:8443", "https://evil.example", "null"} {
+		if c := r(bad); c != http.StatusForbidden {
+			t.Errorf("origin %q: %d", bad, c)
+		}
+	}
+}
+
+func TestWithoutPublicOriginHostAndPortMustMatch(t *testing.T) {
+	h, _ := guarded(t) // Host demo.example
+	for origin, want := range map[string]int{
+		"http://demo.example":      200,
+		"http://demo.example:8080": http.StatusForbidden,
+		"https://demo.example:443": http.StatusForbidden, // an explicit port is a different host string
+	} {
+		if w := send(h, "POST", "/v1/sessions", with(jsonCT, "Origin", origin), `{}`); w.Code != want {
+			t.Errorf("origin %q: %d, want %d", origin, w.Code, want)
+		}
+	}
+}
+
+func TestANonJSONContentTypeIsRefusedEvenWithAnEmptyBody(t *testing.T) {
+	h, e := guarded(t)
+	for _, ct := range []string{"application/x-www-form-urlencoded", "text/plain", "multipart/form-data; boundary=x"} {
+		e.got = nil
+		if w := send(h, "POST", "/v1/sessions/abc/checkout", map[string]string{"Content-Type": ct}, ""); w.Code != http.StatusUnsupportedMediaType || e.got != nil {
+			t.Errorf("empty body, %q: %d", ct, w.Code)
+		}
+	}
+}
+
+func TestOversizeResponsesAreJSONAndChunkedBodiesAreCapped(t *testing.T) {
+	h, _ := guarded(t)
+	w := send(h, "POST", "/v1/sessions/abc/messages", jsonCT, `{"text":"`+strings.Repeat("a", 20<<10)+`"}`)
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("413 content type %q", ct)
+	}
+	// unknown length (chunked): the proxy hits the cap while streaming
+	req := httptest.NewRequest("POST", "/v1/sessions/abc/messages", io.NopCloser(strings.NewReader(`{"text":"`+strings.Repeat("a", 20<<10)+`"}`)))
+	req.ContentLength = -1
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "10.0.0.1:1"
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("chunked oversize: %d", w.Code)
+	}
+}
+
+func TestBareV1IsGuardedToo(t *testing.T) {
+	h, _ := guarded(t)
+	if w := send(h, "POST", "/v1", with(jsonCT, "Sec-Fetch-Site", "cross-site"), `{}`); w.Code != http.StatusForbidden {
+		t.Errorf("POST /v1 cross-site: %d", w.Code)
+	}
+}
+
+func TestHSTSWhenThePublicOriginIsHTTPS(t *testing.T) {
+	if v := send(originGuarded(t, "https://demo.example"), "GET", "/", nil, "").Header().Get("Strict-Transport-Security"); !strings.HasPrefix(v, "max-age=") {
+		t.Errorf("HSTS: %q", v)
+	}
+	if v := send(originGuarded(t, ""), "GET", "/", nil, "").Header().Get("Strict-Transport-Security"); v != "" {
+		t.Errorf("no HSTS without an https public origin: %q", v)
+	}
+}
