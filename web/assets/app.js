@@ -3,7 +3,7 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const state = { topics: [], topic: null, session: null, busy: false };
+const state = { topics: [], topic: null, session: null, busy: false, cart: { items: [] } };
 
 async function api(method, path, body) {
   const res = await fetch("/v1" + path, {
@@ -24,8 +24,85 @@ function say(who, text) {
   $("log").scrollTop = $("log").scrollHeight;
 }
 
+function qtyOf(id) {
+  const l = state.cart.items.find((c) => c.item_id === id);
+  return l ? l.quantity : 0;
+}
+
+// The catalog: rendered once per topic from /v1/topics, quantities refreshed from the server cart.
+function renderCatalog() {
+  const items = (state.topic && state.topic.items) || [];
+  $("catalog").hidden = !items.length;
+  $("catalog-count").textContent = items.length ? `(${items.length})` : "";
+  $("items").replaceChildren(...items.map((it) => {
+    const row = document.createElement("div");
+    row.className = "item";
+    row.id = "item-" + it.item_id;
+    const icon = document.createElement("div");
+    icon.className = "icon";
+    icon.textContent = it.icon || "📦";
+    const info = document.createElement("div");
+    const title = document.createElement("div");
+    title.textContent = it.title + (it.badge ? " · " + it.badge : "");
+    const desc = document.createElement("div");
+    desc.className = "desc";
+    desc.textContent = it.description || "";
+    const price = document.createElement("div");
+    price.className = "price";
+    price.textContent = `${it.price_uah} грн`;
+    info.append(title, desc, price);
+    const qty = document.createElement("div");
+    qty.className = "qty";
+    const minus = document.createElement("button");
+    minus.type = "button"; minus.textContent = "−"; minus.setAttribute("aria-label", "Менше: " + it.title);
+    const n = document.createElement("span");
+    n.className = "n";
+    const plus = document.createElement("button");
+    plus.type = "button"; plus.textContent = "+"; plus.setAttribute("aria-label", "Більше: " + it.title);
+    minus.onclick = () => setQty(it.item_id, qtyOf(it.item_id) - 1);
+    plus.onclick = () => setQty(it.item_id, qtyOf(it.item_id) + 1);
+    qty.append(minus, n, plus);
+    row.append(icon, info, qty);
+    return row;
+  }));
+  syncQty();
+}
+
+function syncQty() {
+  for (const row of $("items").children) {
+    const id = row.id.slice(5);
+    const q = qtyOf(id);
+    row.querySelector(".n").textContent = q || "";
+    row.querySelector("button").disabled = q === 0; // the first button is "−"
+  }
+}
+
+async function setQty(itemId, q) {
+  if (!state.session || q < 0) return;
+  try {
+    renderCart(await api("PUT", `/sessions/${state.session}/cart/items/${encodeURIComponent(itemId)}`, { quantity: q }));
+  } catch (e) {
+    say("bot", "Не вдалося змінити кошик: " + e.message);
+  }
+}
+
+// HIGHLIGHT_ITEM: the server says which card the answer is about. ADD_TO_CART needs
+// nothing here: the response cart (already applied) is what renderCart draws.
+function applyUIActions(actions) {
+  for (const a of actions || []) {
+    if (a.type !== "HIGHLIGHT_ITEM" || !a.payload) continue;
+    const row = document.getElementById("item-" + a.payload.item_id);
+    if (!row) continue;
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    row.classList.add("hl");
+    setTimeout(() => row.classList.remove("hl"), a.payload.duration_ms || 2500);
+  }
+}
+
 function renderCart(cart) {
-  const items = (cart && cart.items) || [];
+  state.cart = cart || { items: [] };
+  syncQty();
+  const items = state.cart.items || [];
   $("cart").hidden = !state.topic || !state.topic.items.length;
   $("cart-items").replaceChildren(...items.map((it) => {
     const li = document.createElement("li");
@@ -54,6 +131,7 @@ async function openTopic(t) {
     const s = await api("POST", "/sessions", { topic: t.id });
     state.session = s.session_id;
     say("bot", t.welcome || t.tagline || "");
+    renderCatalog();
     renderCart(s.cart);
   } catch (e) {
     say("bot", "Не вдалося почати розмову: " + e.message);
@@ -68,6 +146,7 @@ async function send(text) {
     const r = await api("POST", `/sessions/${state.session}/messages`, { text, lang: "uk" });
     say("bot", r.reply);
     renderCart(r.cart);
+    applyUIActions(r.ui_actions);
   } catch (e) {
     say("bot", "Помилка: " + e.message);
   } finally {
@@ -86,7 +165,7 @@ async function checkout() {
 
 async function init() {
   $("form").onsubmit = (ev) => { ev.preventDefault(); const v = $("text").value; $("text").value = ""; send(v); };
-  $("back").onclick = () => { $("chat").hidden = true; $("cart").hidden = true; $("topics").hidden = false; $("topic-name").textContent = ""; };
+  $("back").onclick = () => { $("chat").hidden = true; $("cart").hidden = true; $("catalog").hidden = true; $("topics").hidden = false; $("topic-name").textContent = ""; };
   $("checkout").onclick = checkout;
   try {
     state.topics = await api("GET", "/topics");
