@@ -4,7 +4,7 @@ body { margin: 0; font: 16px/1.4 system-ui, sans-serif; }
 header { display: flex; gap: var(--gap); align-items: baseline; padding: var(--gap) 16px; border-bottom: 1px solid #8884; }
 header h1 { margin: 0; font-size: 1.2rem; }
 main { display: grid; gap: var(--gap); padding: 16px; max-width: 960px; margin: 0 auto; }
-@media (min-width: 800px) { main { grid-template-columns: 1fr 280px; } #topics { grid-column: 1 / -1; } }
+@media (min-width: 800px) { main { grid-template-columns: 1fr 280px; } #topics { grid-column: 1 / -1; } #cart { grid-column: 2; grid-row: 2 / span 2; } }
 #topics { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .topic { text-align: left; padding: var(--gap); border: 1px solid #8886; border-radius: 10px; background: none; color: inherit; cursor: pointer; }
 .topic b { display: block; } .topic small { opacity: .7; }
@@ -16,3 +16,12 @@ main { display: grid; gap: var(--gap); padding: 16px; max-width: 960px; margin: 
 #form { display: flex; gap: 8px; } #text { flex: 1; padding: 8px; font: inherit; }
 #cart { border: 1px solid #8886; border-radius: 10px; padding: var(--gap); align-self: start; }
 #cart h2 { margin: 0 0 8px; font-size: 1rem; } #cart ul { padding-left: 18px; margin: 0; }
+#catalog h2 { font-size: 1rem; margin: 0 0 8px; } #catalog small { opacity: .6; font-weight: normal; }
+#items { display: grid; gap: 8px; }
+.item { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid #8886; border-radius: 10px; transition: background .3s, box-shadow .3s; }
+.item.hl { background: #2a7de122; box-shadow: 0 0 0 2px #2a7de1; }
+.item .icon { font-size: 1.6rem; text-align: center; }
+.item .desc { font-size: .8rem; opacity: .7; } .item .price { font-weight: 600; }
+.qty { display: flex; align-items: center; gap: 6px; }
+.qty button { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #8886; background: none; color: inherit; font-size: 1.1rem; cursor: pointer; }
+.qty button:disabled { opacity: .35; cursor: default; }
