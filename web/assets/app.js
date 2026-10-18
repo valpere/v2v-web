@@ -121,7 +121,9 @@ function renderCart(cart) {
     return li;
   }));
   $("cart-total").textContent = items.length ? `Разом: ${cart.total_uah} грн` : "Порожньо";
-  $("checkout").disabled = !items.length;
+  const missing = state.cart.missing_slots || [];
+  $("checkout").disabled = !items.length || missing.length > 0;
+  $("checkout-hint").textContent = items.length && missing.length ? "Щоб оформити, завершіть запис у чаті: " + missing.join(", ") + "." : "";
 }
 
 async function openTopic(t) {
@@ -152,10 +154,12 @@ async function openTopic(t) {
 
 async function send(text) {
   if (!state.session || state.busy || !text.trim()) return;
+  const sid = state.session;
   state.busy = true;
   say("user", text);
   try {
-    const r = await api("POST", `/sessions/${state.session}/messages`, { text, lang: "uk" });
+    const r = await api("POST", `/sessions/${sid}/messages`, { text, lang: "uk" });
+    if (sid !== state.session) return; // the topic changed meanwhile: this answer belongs to another conversation
     say("bot", r.reply);
     renderCart(r.cart);
     applyUIActions(r.ui_actions);
