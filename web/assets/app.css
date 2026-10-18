@@ -1,4 +1,5 @@
- { display: none !important; }
+:root { color-scheme: light dark; --gap: 12px; }
+[hidden] { display: none !important; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 16px/1.4 system-ui, sans-serif; }
 header { display: flex; gap: var(--gap); align-items: baseline; padding: var(--gap) 16px; border-bottom: 1px solid #8884; }
