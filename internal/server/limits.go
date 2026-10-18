@@ -27,10 +27,10 @@ type Limits struct {
 // DefaultLimits is the agreed starting table (a demo conversation is 10–20 messages).
 func DefaultLimits() Limits {
 	return Limits{
-		VisitorPerMin: 6, VisitorPerDay: 60,
-		IPPerMin: 12, IPPerDay: 120,
+		VisitorPerMin: 15, VisitorPerDay: 200,
+		IPPerMin: 30, IPPerDay: 400,
 		SessionsVisitorPerHour: 10, SessionsIPPerHour: 20,
-		GlobalPerDay: 150,
+		GlobalPerDay: 1000,
 	}
 }
 
