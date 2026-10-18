@@ -259,7 +259,9 @@ async function init() {
   $("form").onsubmit = (ev) => { ev.preventDefault(); const v = $("text").value; $("text").value = ""; send(v); };
   $("checkout").onclick = checkout;
   $("back").onclick = backToTopics;
-  if (micSupported()) { $("mic").hidden = false; $("mic").onclick = toggleMic; }
+  // a text-only engine reports voice_in:false; an older one has no /features, so assume voice is there
+  const features = await api("GET", "/features").catch(() => ({ voice_in: true }));
+  if (micSupported() && features.voice_in !== false) { $("mic").hidden = false; $("mic").onclick = toggleMic; }
   try {
     state.topics = await api("GET", "/topics");
   } catch (e) {
