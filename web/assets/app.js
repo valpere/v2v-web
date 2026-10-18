@@ -16,6 +16,9 @@ async function api(method, path, body) {
   return data;
 }
 
+// shortOrder is the part of an order id a person can read out: the last 6 characters, as "#abcdef".
+const shortOrder = (id) => "#" + String(id).slice(-6);
+
 function say(who, text) {
   const el = document.createElement("div");
   el.className = "msg " + who;
@@ -239,7 +242,14 @@ function play(b64, type) {
 async function checkout() {
   try {
     const r = await api("POST", `/sessions/${state.session}/checkout`, {});
-    say("bot", r.mock ? `Замовлення ${r.order_id} прийнято (демо, без оплати).` : "Оплата недоступна у веб-версії.");
+    if (r.mock) {
+      const el = say("bot", "Замовлення ");
+      const num = document.createElement("strong");
+      num.textContent = shortOrder(r.order_id);
+      el.append(num, " прийнято (демо, без оплати).");
+    } else {
+      say("bot", "Оплата недоступна у веб-версії.");
+    }
   } catch (e) {
     say("bot", "Не вдалося оформити: " + e.message);
   }
