@@ -1,4 +1,4 @@
-:root { color-scheme: light dark; --gap: 12px; }
+ { display: none !important; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 16px/1.4 system-ui, sans-serif; }
 header { display: flex; gap: var(--gap); align-items: baseline; padding: var(--gap) 16px; border-bottom: 1px solid #8884; }
@@ -8,6 +8,7 @@ main { display: grid; gap: var(--gap); padding: 16px; max-width: 960px; margin: 
 #topics { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 .topic { text-align: left; padding: var(--gap); border: 1px solid #8886; border-radius: 10px; background: none; color: inherit; cursor: pointer; }
 .topic b { display: block; } .topic small { opacity: .7; }
+#topic-card { padding: 8px 0; } #topic-card b { display: block; } #topic-card small { opacity: .7; }
 #log { min-height: 240px; max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
 .msg { padding: 8px 12px; border-radius: 12px; max-width: 85%; white-space: pre-wrap; }
 .msg.user { align-self: flex-end; background: #2a7de133; } .msg.bot { align-self: flex-start; background: #8883; }
