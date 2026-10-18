@@ -5,8 +5,8 @@ Target: the Always Free Micro that already runs `v2v-engine` and `v2v-bot`
 (v2v-web) → 127.0.0.1:8091 (engine web API)**. Nothing else is exposed.
 
 ## 0. Prerequisites
-- A DNS **A record** `demo.pere.org.ua → <server public IP>` (zone is hosted at the
-  registrar, imena.ua). Check: `dig +short demo.pere.org.ua`.
+- A DNS **A record** `web.pere.org.ua → <server public IP>` (zone is hosted at the
+  Cloudflare, DNS only). Check: `dig +short web.pere.org.ua`.
 - Oracle console → VCN → Security List: **ingress** TCP 80 and 443 from 0.0.0.0/0.
 - Host firewall (iptables rejects everything but 22 today). Insert **before** the
   final `REJECT` and persist:
@@ -33,7 +33,7 @@ ENGINE_URL=http://127.0.0.1:8091
 ENGINE_KEY=<same as WEB_TRUSTED_KEY>
 ADDR=127.0.0.1:8086
 TRUST_PROXY=1
-PUBLIC_ORIGIN=https://demo.pere.org.ua
+PUBLIC_ORIGIN=https://web.pere.org.ua
 ```
 Install the unit (`deploy/v2v-web.service` → `/etc/systemd/system/`),
 `sudo systemctl daemon-reload && sudo systemctl enable v2v-web`, then from the
@@ -47,11 +47,11 @@ the first request to the name; watch `journalctl -u caddy`.
 
 ## 4. Verify
 ```
-curl -sI https://demo.pere.org.ua/            # 200, CSP + HSTS headers
-curl -s  https://demo.pere.org.ua/v1/topics   # 10 topics
+curl -sI https://web.pere.org.ua/            # 200, CSP + HSTS headers
+curl -s  https://web.pere.org.ua/v1/topics   # 10 topics
 ```
 Open the page, pick a topic, send a message. Cross-site POSTs must be `403`:
-`curl -si -X POST https://demo.pere.org.ua/v1/sessions -H 'Origin: https://evil.example' -H 'Content-Type: application/json' -d '{}'`.
+`curl -si -X POST https://web.pere.org.ua/v1/sessions -H 'Origin: https://evil.example' -H 'Content-Type: application/json' -d '{}'`.
 
 ## Rollback
 `./minions/srv.sh rollback web`; or `sudo systemctl disable --now v2v-web caddy`
