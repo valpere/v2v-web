@@ -274,8 +274,8 @@ func TestForwardedForOnlyCountsBehindATrustedProxy(t *testing.T) {
 
 func TestDefaultLimitsApplyWhenUnset(t *testing.T) {
 	d := DefaultLimits()
-	if d.VisitorPerMin != 6 || d.VisitorPerDay != 60 || d.IPPerMin != 12 || d.IPPerDay != 120 ||
-		d.SessionsVisitorPerHour != 10 || d.SessionsIPPerHour != 20 || d.GlobalPerDay != 150 {
+	if d.VisitorPerMin != 15 || d.VisitorPerDay != 200 || d.IPPerMin != 30 || d.IPPerDay != 400 ||
+		d.SessionsVisitorPerHour != 10 || d.SessionsIPPerHour != 20 || d.GlobalPerDay != 1000 {
 		t.Fatalf("defaults drifted from the agreed table: %+v", d)
 	}
 }
