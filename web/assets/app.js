@@ -127,7 +127,8 @@ async function openTopic(t) {
   $("log").replaceChildren();
   $("topics").hidden = true;
   $("chat").hidden = false;
-  $("topic-name").textContent = `${t.icon || ""} ${t.name}`;
+  $("card-name").textContent = `${t.icon || ""} ${t.name}`;
+  $("card-tag").textContent = t.tagline || "";
   $("prompts").replaceChildren(...(t.quick_prompts || []).map((p) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -138,7 +139,7 @@ async function openTopic(t) {
   try {
     const s = await api("POST", "/sessions", { topic: t.id });
     state.session = s.session_id;
-    say("bot", t.welcome || t.tagline || "");
+    if (t.welcome) say("bot", t.welcome);
     renderCatalog();
     renderCart(s.cart);
   } catch (e) {
@@ -246,7 +247,6 @@ async function checkout() {
 
 async function init() {
   $("form").onsubmit = (ev) => { ev.preventDefault(); const v = $("text").value; $("text").value = ""; send(v); };
-  $("back").onclick = () => { $("chat").hidden = true; $("cart").hidden = true; $("catalog").hidden = true; $("topics").hidden = false; $("topic-name").textContent = ""; };
   $("checkout").onclick = checkout;
   if (micSupported()) { $("mic").hidden = false; $("mic").onclick = toggleMic; }
   try {
