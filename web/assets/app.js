@@ -245,9 +245,20 @@ async function checkout() {
   }
 }
 
+function backToTopics() {
+  stopPlayback();
+  state.topic = null;
+  state.session = null;
+  $("chat").hidden = true;
+  $("catalog").hidden = true;
+  $("cart").hidden = true;
+  $("topics").hidden = false;
+}
+
 async function init() {
   $("form").onsubmit = (ev) => { ev.preventDefault(); const v = $("text").value; $("text").value = ""; send(v); };
   $("checkout").onclick = checkout;
+  $("back").onclick = backToTopics;
   if (micSupported()) { $("mic").hidden = false; $("mic").onclick = toggleMic; }
   try {
     state.topics = await api("GET", "/topics");
