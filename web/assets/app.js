@@ -171,6 +171,7 @@ function micSupported() {
 
 async function toggleMic() {
   if (rec.mr) { rec.mr.stop(); return; }
+  stopPlayback(); // tapping the mic interrupts the spoken reply, so it is not recorded back
   if (!state.session || state.busy) return;
   let stream;
   try {
@@ -220,13 +221,18 @@ async function sendVoice(blob, secs) {
   }
 }
 
+let stopPlayback = () => {};
+
 function play(b64, type) {
+  stopPlayback(); // never two clips on top of each other
   const bin = atob(b64);
   const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
   const url = URL.createObjectURL(new Blob([bytes], { type }));
   const a = new Audio(url);
-  a.onended = a.onerror = () => URL.revokeObjectURL(url);
-  a.play().catch(() => URL.revokeObjectURL(url)); // autoplay can be refused; the text is already there
+  const free = () => { URL.revokeObjectURL(url); a.pause(); if (stopPlayback === free) stopPlayback = () => {}; };
+  stopPlayback = free;
+  a.onended = a.onerror = free;
+  a.play().catch(free); // autoplay can be refused; the text is already there
 }
 
 async function checkout() {
