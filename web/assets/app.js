@@ -126,6 +126,19 @@ function renderCart(cart) {
   $("checkout-hint").textContent = items.length && missing.length ? "Щоб оформити, завершіть запис у чаті: " + missing.join(", ") + "." : "";
 }
 
+// The buttons under the chat: the answers to the slot the bot asks next (`suggestions` from
+// the engine), else the topic's own quick prompts.
+function renderPrompts(suggestions) {
+  const list = suggestions && suggestions.length ? suggestions : (state.topic && state.topic.quick_prompts) || [];
+  $("prompts").replaceChildren(...list.map((p) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = p;
+    b.onclick = () => send(p);
+    return b;
+  }));
+}
+
 async function openTopic(t) {
   state.topic = t;
   state.session = null;
@@ -134,13 +147,7 @@ async function openTopic(t) {
   $("chat").hidden = false;
   $("card-name").textContent = `${t.icon || ""} ${t.name}`;
   $("card-tag").textContent = t.tagline || "";
-  $("prompts").replaceChildren(...(t.quick_prompts || []).map((p) => {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = p;
-    b.onclick = () => send(p);
-    return b;
-  }));
+  renderPrompts([]);
   try {
     const s = await api("POST", "/sessions", { topic: t.id });
     state.session = s.session_id;
@@ -162,6 +169,7 @@ async function send(text) {
     if (sid !== state.session) return; // the topic changed meanwhile: this answer belongs to another conversation
     say("bot", r.reply);
     renderCart(r.cart);
+    renderPrompts(r.suggestions);
     applyUIActions(r.ui_actions);
   } catch (e) {
     say("bot", "Помилка: " + e.message);
@@ -219,6 +227,7 @@ async function sendVoice(blob, secs) {
     mine.textContent = r.transcript ? "🎤 " + r.transcript : "🎤";
     say("bot", r.reply);
     renderCart(r.cart);
+    renderPrompts(r.suggestions);
     applyUIActions(r.ui_actions);
     if (r.audio_b64) play(r.audio_b64, r.audio_type);
   } catch (e) {
