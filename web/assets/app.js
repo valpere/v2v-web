@@ -3,7 +3,7 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const state = { topics: [], topic: null, session: null, busy: false, cart: { items: [] } };
+const state = { topics: [], topic: null, session: null, busy: false, said: new Set(), cart: { items: [] } };
 
 async function api(method, path, body) {
   const res = await fetch("/v1" + path, {
@@ -128,8 +128,12 @@ function renderCart(cart) {
 
 // The buttons under the chat: the answers to the slot the bot asks next (`suggestions` from
 // the engine), else the topic's own quick prompts.
+// A button whose text the client already sent (tapped or typed) is not offered again.
+const promptKey = (t) => t.toLowerCase().replace(/[\s.!?…]+$/g, "").replace(/\s+/g, " ").trim();
+
 function renderPrompts(suggestions) {
-  const list = suggestions && suggestions.length ? suggestions : (state.topic && state.topic.quick_prompts) || [];
+  const list = (suggestions && suggestions.length ? suggestions : (state.topic && state.topic.quick_prompts) || [])
+    .filter((p) => !state.said.has(promptKey(p)));
   $("prompts").replaceChildren(...list.map((p) => {
     const b = document.createElement("button");
     b.type = "button";
@@ -142,6 +146,7 @@ function renderPrompts(suggestions) {
 async function openTopic(t) {
   state.topic = t;
   state.session = null;
+  state.said = new Set();
   $("log").replaceChildren();
   $("topics").hidden = true;
   $("chat").hidden = false;
@@ -163,6 +168,7 @@ async function send(text) {
   if (!state.session || state.busy || !text.trim()) return;
   const sid = state.session;
   state.busy = true;
+  state.said.add(promptKey(text));
   say("user", text);
   try {
     const r = await api("POST", `/sessions/${sid}/messages`, { text, lang: "uk" });
