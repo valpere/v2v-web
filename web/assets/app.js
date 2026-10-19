@@ -260,6 +260,7 @@ async function checkout() {
       const num = document.createElement("strong");
       num.textContent = shortOrder(r.order_id);
       el.append(num, " прийнято (демо, без оплати).");
+      renderCart(await api("GET", `/sessions/${state.session}/cart`)); // a mock order spends the cart on the server
     } else {
       say("bot", "Оплата недоступна у веб-версії.");
     }
